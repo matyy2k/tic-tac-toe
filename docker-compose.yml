@@ -7,8 +7,9 @@ services:
     build: .
     ports:
       - "5000:5000"
-    environment:
-      - DB_URL=postgresql://postgres:postgres@postgres:5432/postgres
+    env_file: .env-docker
+    volumes:
+      - .:/app
     depends_on:
       - postgres
 
@@ -17,10 +18,7 @@ services:
     image: postgres:15.3
     ports:
       - "5432:5432"
-    environment:
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_DB=postgres
+    env_file: .env-docker
     volumes:
       - pgdata:/var/lib/postgresql/data
 
