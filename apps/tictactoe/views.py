@@ -1,19 +1,16 @@
 import uuid
-from functools import wraps
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from flask import Blueprint, jsonify, request, session
+from sqlalchemy import desc, func
+
+from db import session as db
+
+from .models import UserStats
+from .utils import find_best_move, login_required
 
 app = Blueprint("app", __name__)
-
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not "player" in session:
-            return jsonify({"message": "Player is not logged in."}), 401
-        return f(*args, **kwargs)
-
-    return decorated_function
 
 
 def init_board():
@@ -62,10 +59,83 @@ def is_winner(board, player):
 
 
 def update_game_state(result):
+    player = (
+        db.query(UserStats)
+        .filter(UserStats.user_id == session["player"]["user_id"])
+        .first()
+    )
+
     if result == "win":
         session["player"]["credits"] += 4
+        player.wins = 1 if not player.wins else player.wins + 1
+        db.add(player)
+
     elif result == "loss":
         session["player"]["credits"] -= 3
+        player.losses = 1 if not player.losses else player.losses + 1
+        db.add(player)
+
+    elif result == "draw":
+        player.draws = 1 if not player.draws else player.draws + 1
+        db.add(player)
+
+    db.commit()
+
+
+@app.route("/player/login", methods=["POST"])
+def login_player():
+    name = request.json.get("name")
+
+    if not name:
+        return jsonify({"message": "Name is required."}), 400
+
+    user_id = str(uuid.uuid4())
+
+    session["player"] = {
+        "name": name,
+        "credits": 10,
+        "user_id": user_id,
+    }
+
+    obj = {"user_name": name, "user_id": user_id}
+
+    user_stats = UserStats(**obj)
+    db.add(user_stats)
+    db.commit()
+
+    return jsonify({"message": "Player logged in successfully."})
+
+
+@app.route("/game/start", methods=["POST"])
+@login_required
+def start_game():
+    if not has_sufficient_credits():
+        end_time = datetime.now(tz=ZoneInfo(key="Europe/Warsaw"))
+        player = (
+            db.query(UserStats)
+            .filter(UserStats.user_id == session["player"]["user_id"])
+            .first()
+        )
+        player.start_game = end_time
+        db.add(player)
+        db.commit()
+        return jsonify({"message": "Insufficient credits."}), 400
+
+    player = (
+        db.query(UserStats)
+        .filter(UserStats.user_id == session["player"]["user_id"])
+        .first()
+    )
+
+    start_time = datetime.now(tz=ZoneInfo(key="Europe/Warsaw"))
+    if not player.start_game:
+        player.start_game = start_time
+        db.add(player)
+        db.commit()
+
+    session["board"] = init_board()
+
+    return jsonify({"message": session["board"]})
 
 
 @app.route("/game/move", methods=["POST"])
@@ -109,18 +179,6 @@ def make_ai_move(board):
     return move
 
 
-# Rozpoczyna nową grę
-@app.route("/game/start", methods=["POST"])
-@login_required
-def start_game():
-    if not has_sufficient_credits():
-        return jsonify({"message": "Insufficient credits."}), 400
-
-    session["board"] = init_board()
-
-    return jsonify({"message": session["board"]})
-
-
 @app.route("/game/status", methods=["GET"])
 @login_required
 def get_game_status():
@@ -130,158 +188,50 @@ def get_game_status():
     return jsonify({"player": session["player"], "board": session["board"]})
 
 
-@app.route("/player/credits", methods=["GET"])
+@app.route("/player/credits", methods=["GET", "POST"])
 @login_required
 def get_player_credits():
-    return jsonify(session["player"])
+    if request.method == "GET":
+        return jsonify(session["player"])
+
+    if request.method == "POST":
+        if session["player"]["credits"] == 0:
+            session["player"]["credits"] += 10
+            return jsonify({"message": "Credits added successfully."})
+        else:
+            return jsonify({"message": "Player already has credits."})
 
 
-# Logowanie gracza - inicjalizacja sesji
-@app.route("/player/login", methods=["POST"])
-def login_player():
-    name = request.json.get("name")
+@app.route("/stats/<date>", methods=["GET"])
+def get_stats(date):
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"message": "Invalid date format. Use YYYY-MM-DD."}), 400
 
-    if not name:
-        return jsonify({"message": "Name is required."}), 400
+    stats = (
+        db.query(
+            func.sum(UserStats.wins),
+            func.sum(UserStats.losses),
+            func.sum(UserStats.draws),
+            func.avg(UserStats.duration),
+        )
+        .filter(func.DATE(UserStats.created_at) == date)
+        .first()
+    )
+    total_wins, total_losses, total_draws, average_duration = stats
 
-    session["player"] = {
-        "name": name,
-        "credits": 10,
-        "id": str(uuid.uuid4()),
-    }
+    best_player = db.query(UserStats).order_by(desc(UserStats.wins)).first()
 
-    return jsonify({"message": "Player logged in successfully."})
-
-
-player, opponent = "X", "O"
-
-
-# This function returns true if there are moves
-# remaining on the board. It returns false if
-# there are no moves left to play.
-def is_moves_left(board):
-    for i in range(3):
-        for j in range(3):
-            if board[i][j] == "_":
-                return True
-    return False
-
-
-# This is the evaluation function as discussed
-# in the previous article ( http://goo.gl/sJgv68 )
-def evaluate(b):
-    # Checking for Rows for X or O victory.
-    for row in range(3):
-        if b[row][0] == b[row][1] and b[row][1] == b[row][2]:
-            if b[row][0] == player:
-                return 10
-            elif b[row][0] == opponent:
-                return -10
-
-    # Checking for Columns for X or O victory.
-    for col in range(3):
-        if b[0][col] == b[1][col] and b[1][col] == b[2][col]:
-            if b[0][col] == player:
-                return 10
-            elif b[0][col] == opponent:
-                return -10
-
-    # Checking for Diagonals for X or O victory.
-    if b[0][0] == b[1][1] and b[1][1] == b[2][2]:
-        if b[0][0] == player:
-            return 10
-        elif b[0][0] == opponent:
-            return -10
-
-    if b[0][2] == b[1][1] and b[1][1] == b[2][0]:
-        if b[0][2] == player:
-            return 10
-        elif b[0][2] == opponent:
-            return -10
-
-    # Else if none of them have won then return 0
-    return 0
-
-
-# This is the minimax function. It considers all
-# the possible ways the game can go and returns
-# the value of the board
-def minimax(board, depth, isMax):
-    score = evaluate(board)
-
-    # If Maximizer has won the game return his/her
-    # evaluated score
-    if score == 10:
-        return score
-
-    # If Minimizer has won the game return his/her
-    # evaluated score
-    if score == -10:
-        return score
-
-    # If there are no more moves and no winner then
-    # it is a tie
-    if is_moves_left(board) == False:
-        return 0
-
-    # If this maximizer's move
-    if isMax:
-        best = -1000
-
-        # Traverse all cells
-        for i in range(3):
-            for j in range(3):
-                # Check if cell is empty
-                if board[i][j] == "_":
-                    # Make the move
-                    board[i][j] = player
-
-                    # Call minimax recursively and choose
-                    # the maximum value
-                    best = max(best, minimax(board, depth + 1, not isMax))
-
-                    # Undo the move
-                    board[i][j] = "_"
-        return best
-
-    # If this minimizer's move
-    else:
-        best = 1000
-
-        # Traverse all cells
-        for i in range(3):
-            for j in range(3):
-                # Check if cell is empty
-                if board[i][j] == "_":
-                    # Make the move
-                    board[i][j] = opponent
-
-                    # Call minimax recursively and choose
-                    # the minimum value
-                    best = min(best, minimax(board, depth + 1, not isMax))
-
-                    # Undo the move
-                    board[i][j] = "_"
-        return best
-
-
-# This will return the best possible move for the player
-def find_best_move(board):
-    print(board)
-    bestVal = -1000
-    bestMove = (-1, -1)
-
-    for i in range(3):
-        for j in range(3):
-            if board[i][j] == "":
-                board[i][j] = player
-
-                moveVal = minimax(board, 0, False)
-
-                board[i][j] = ""
-
-                if moveVal > bestVal:
-                    bestMove = (i, j)
-                    bestVal = moveVal
-
-    return bestMove
+    return jsonify(
+        {
+            "date": date,
+            "total_wins": total_wins or 0,
+            "total_losses": total_losses or 0,
+            "total_draws": total_draws or 0,
+            "average_duration": average_duration or 0,
+        },
+        {
+            "best_player": best_player.user_name,
+        },
+    )

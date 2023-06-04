@@ -1,17 +1,23 @@
-from sqlalchemy import Column, Date, Integer, String
+import datetime
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import Column, DateTime, Integer, String
 
 from db import Base
 
 
-class Movie(Base):
-    __tablename__ = "movies"
+class UserStats(Base):
+    __tablename__ = "statistics"
 
     id = Column(Integer, primary_key=True)
-    title = Column(String)
-    release_date = Column(Date)
-    test = Column(String)
-    test2 = Column(Date)
-
-    def __init__(self, title, release_date):
-        self.title = title
-        self.release_date = release_date
+    created_at = Column(
+        DateTime, default=datetime.datetime.now(tz=ZoneInfo(key="Europe/Warsaw"))
+    )
+    user_name = Column(String)
+    wins = Column(Integer)
+    losses = Column(Integer)
+    draws = Column(Integer)
+    duration = Column(Integer)
+    user_id = Column(String)
+    start_game = Column(DateTime)
+    end_game = Column(DateTime)
