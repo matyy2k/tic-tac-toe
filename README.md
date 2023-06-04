@@ -1,6 +1,14 @@
 # tic-tac-toe
 
-Gra oparta jest na REST API. Wykorzystuje sesje do tymczasowej identyfikacji gracza.
+The game is based on the REST API. Uses sessions to temporarily identify a player.
+
+# TECHNOLOGIES
+
+- Python 3.10
+- Flask
+- SQLAlchemy
+- Docker + Docker Compose
+- PostgreSQL
 
 # HOW TO RUN
 
