@@ -116,7 +116,7 @@ def start_game():
             .filter(UserStats.user_id == session["player"]["user_id"])
             .first()
         )
-        player.start_game = end_time
+        player.end_game = end_time
         db.add(player)
         db.commit()
         return jsonify({"message": "Insufficient credits."}), 400
@@ -214,24 +214,29 @@ def get_stats(date):
             func.sum(UserStats.wins),
             func.sum(UserStats.losses),
             func.sum(UserStats.draws),
-            func.avg(UserStats.duration),
         )
         .filter(func.DATE(UserStats.created_at) == date)
         .first()
     )
-    total_wins, total_losses, total_draws, average_duration = stats
+    total_wins, total_losses, total_draws = stats
 
     best_player = db.query(UserStats).order_by(desc(UserStats.wins)).first()
-
+    duration = calculate_duration(best_player)
     return jsonify(
         {
             "date": date,
             "total_wins": total_wins or 0,
             "total_losses": total_losses or 0,
             "total_draws": total_draws or 0,
-            "average_duration": average_duration or 0,
         },
         {
-            "best_player": best_player.user_name,
+            "best_player": best_player.user_name or 0,
+            "total_duration_game": duration or 0,
         },
     )
+
+
+def calculate_duration(best_player):
+    if best_player.start_game and best_player.end_game:
+        duration = (best_player.end_game - best_player.start_game).total_seconds()
+        return duration

@@ -17,7 +17,6 @@ class UserStats(Base):
     wins = Column(Integer)
     losses = Column(Integer)
     draws = Column(Integer)
-    duration = Column(Integer)
     user_id = Column(String)
     start_game = Column(DateTime)
     end_game = Column(DateTime)

@@ -28,8 +28,6 @@ def is_moves_left(board):
     return False
 
 
-# This is the evaluation function as discussed
-# in the previous article ( http://goo.gl/sJgv68 )
 def evaluate(b):
     # Checking for Rows for X or O victory.
     for row in range(3):
@@ -128,8 +126,8 @@ def minimax(board, depth, isMax):
 
 # This will return the best possible move for the player
 def find_best_move(board):
-    bestVal = -1000
-    bestMove = (-1, -1)
+    best_val = -1000
+    best_move = (-1, -1)
 
     for i in range(3):
         for j in range(3):
@@ -140,8 +138,8 @@ def find_best_move(board):
 
                 board[i][j] = ""
 
-                if moveVal > bestVal:
-                    bestMove = (i, j)
-                    bestVal = moveVal
+                if moveVal > best_val:
+                    best_move = (i, j)
+                    best_val = moveVal
 
-    return bestMove
+    return best_move
